@@ -242,7 +242,6 @@ export async function uploadFileFeishu(params: {
     },
   });
 
-  // SDK v1.30+ returns data directly without code wrapper on success
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK response type
   const responseAny = response as any;
   if (responseAny.code !== undefined && responseAny.code !== 0) {
@@ -345,6 +344,49 @@ export async function sendFileFeishu(params: {
 }
 
 /**
+ * Send an audio message using a file_key.
+ * Displays as a playable voice message in Feishu (not a file download).
+ */
+export async function sendAudioFeishu(params: {
+  cfg: ClawdbotConfig;
+  to: string;
+  fileKey: string;
+  replyToMessageId?: string;
+  accountId?: string;
+}): Promise<SendMediaResult> {
+  const { cfg, to, fileKey, replyToMessageId, accountId } = params;
+  const { client, receiveId, receiveIdType } = resolveFeishuSendTarget({
+    cfg,
+    to,
+    accountId,
+  });
+  const content = JSON.stringify({ file_key: fileKey });
+
+  if (replyToMessageId) {
+    const response = await client.im.message.reply({
+      path: { message_id: replyToMessageId },
+      data: {
+        content,
+        msg_type: "audio",
+      },
+    });
+    assertFeishuMessageApiSuccess(response, "Feishu audio reply failed");
+    return toFeishuSendResult(response, receiveId);
+  }
+
+  const response = await client.im.message.create({
+    params: { receive_id_type: receiveIdType },
+    data: {
+      receive_id: receiveId,
+      content,
+      msg_type: "audio",
+    },
+  });
+  assertFeishuMessageApiSuccess(response, "Feishu audio send failed");
+  return toFeishuSendResult(response, receiveId);
+}
+
+/**
  * Helper to detect file type from extension
  */
 export function detectFileType(
@@ -418,24 +460,31 @@ export async function sendMediaFeishu(params: {
   if (isImage) {
     const { imageKey } = await uploadImageFeishu({ cfg, image: buffer, accountId });
     return sendImageFeishu({ cfg, to, imageKey, replyToMessageId, accountId });
-  } else {
-    const fileType = detectFileType(name);
-    const { fileKey } = await uploadFileFeishu({
-      cfg,
-      file: buffer,
-      fileName: name,
-      fileType,
-      accountId,
-    });
-    // Feishu requires msg_type "media" for audio/video, "file" for documents
-    const isMedia = fileType === "mp4" || fileType === "opus";
-    return sendFileFeishu({
-      cfg,
-      to,
-      fileKey,
-      msgType: isMedia ? "media" : "file",
-      replyToMessageId,
-      accountId,
-    });
   }
+
+  const isAudio = [".opus", ".ogg", ".mp3"].includes(ext);
+  // Upload audio as opus type so Feishu accepts it for voice playback
+  const fileType = isAudio ? ("opus" as const) : detectFileType(name);
+  const { fileKey } = await uploadFileFeishu({
+    cfg,
+    file: buffer,
+    fileName: name,
+    fileType,
+    accountId,
+  });
+
+  // Send audio as playable voice messages instead of file downloads
+  if (isAudio) {
+    return sendAudioFeishu({ cfg, to, fileKey, replyToMessageId, accountId });
+  }
+  // Feishu requires msg_type "media" for video, "file" for documents
+  const isMedia = fileType === "mp4";
+  return sendFileFeishu({
+    cfg,
+    to,
+    fileKey,
+    msgType: isMedia ? "media" : "file",
+    replyToMessageId,
+    accountId,
+  });
 }

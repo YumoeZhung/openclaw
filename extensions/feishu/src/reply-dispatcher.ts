@@ -8,6 +8,7 @@ import {
 } from "openclaw/plugin-sdk";
 import { resolveFeishuAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
+import { sendMediaFeishu } from "./media.js";
 import type { MentionTarget } from "./mention.js";
 import { buildMentionedCardContent } from "./mention.js";
 import { getFeishuRuntime } from "./runtime.js";
@@ -137,6 +138,27 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         void typingCallbacks.onReplyStart?.();
       },
       deliver: async (payload: ReplyPayload, info) => {
+        // Handle media (TTS audio, images, etc.) via sendMediaFeishu
+        const mediaUrl = payload.mediaUrl;
+        if (mediaUrl) {
+          try {
+            await sendMediaFeishu({
+              cfg,
+              to: chatId,
+              mediaUrl,
+              replyToMessageId,
+              accountId,
+            });
+          } catch (err) {
+            params.runtime.error?.(
+              `feishu[${account.accountId}] deliver: sendMedia failed: ${String(err)}`,
+            );
+            if (!payload.text?.trim()) {
+              throw err;
+            }
+          }
+        }
+
         const text = payload.text ?? "";
         if (!text.trim()) {
           return;
