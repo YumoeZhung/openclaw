@@ -153,6 +153,11 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             params.runtime.error?.(
               `feishu[${account.accountId}] deliver: sendMedia failed: ${String(err)}`,
             );
+<<<<<<< HEAD
+=======
+            // Re-throw if this is a media-only reply (no text), so the
+            // dispatcher can signal failure upstream instead of silently dropping it.
+>>>>>>> 89bf83cb5 (fix: address PR review feedback - lint, cache key, error handling)
             if (!payload.text?.trim()) {
               throw err;
             }
