@@ -1,7 +1,10 @@
 import fs from "fs";
 import path from "path";
 import { Readable } from "stream";
+<<<<<<< HEAD
 import { withTempDownloadPath, type ClawdbotConfig } from "openclaw/plugin-sdk";
+=======
+>>>>>>> f3755a2f8 (refactor: revert upload layer rewrite, keep audio support and reply-dispatcher integration)
 import { resolveFeishuAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
 import { normalizeFeishuExternalKey } from "./external-keys.js";
@@ -209,6 +212,7 @@ export async function uploadImageFeishu(params: {
 
 /**
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
  * Resolve Feishu API base URL from domain config.
  */
@@ -270,6 +274,8 @@ async function getTenantAccessToken(
 
 /**
 >>>>>>> 89bf83cb5 (fix: address PR review feedback - lint, cache key, error handling)
+=======
+>>>>>>> f3755a2f8 (refactor: revert upload layer rewrite, keep audio support and reply-dispatcher integration)
  * Upload a file to Feishu and get a file_key for sending.
  * Max file size: 30MB
  */
@@ -289,26 +295,42 @@ export async function uploadFileFeishu(params: {
 
   const client = createFeishuClient(account);
 
+<<<<<<< HEAD
   // SDK accepts Buffer directly or fs.ReadStream for file paths
   // Using Readable.from(buffer) causes issues with form-data library
   // See: https://github.com/larksuite/node-sdk/issues/121
   const fileData = typeof file === "string" ? fs.createReadStream(file) : file;
+=======
+  // SDK expects a Readable stream, not a Buffer
+  // Use type assertion since SDK actually accepts any Readable at runtime
+  const fileStream = typeof file === "string" ? fs.createReadStream(file) : Readable.from(file);
+>>>>>>> f3755a2f8 (refactor: revert upload layer rewrite, keep audio support and reply-dispatcher integration)
 
   const response = await client.im.file.create({
     data: {
       file_type: fileType,
       file_name: fileName,
+<<<<<<< HEAD
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK accepts Buffer or ReadStream
       file: fileData as any,
+=======
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK stream type
+      file: fileStream as any,
+>>>>>>> f3755a2f8 (refactor: revert upload layer rewrite, keep audio support and reply-dispatcher integration)
       ...(duration !== undefined && { duration }),
     },
   });
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+  // SDK v1.30+ returns data directly without code wrapper on success
+>>>>>>> f3755a2f8 (refactor: revert upload layer rewrite, keep audio support and reply-dispatcher integration)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK response type
   const responseAny = response as any;
   if (responseAny.code !== undefined && responseAny.code !== 0) {
     throw new Error(`Feishu file upload failed: ${responseAny.msg || `code ${responseAny.code}`}`);
+<<<<<<< HEAD
 =======
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -326,6 +348,10 @@ export async function uploadFileFeishu(params: {
 >>>>>>> 89bf83cb5 (fix: address PR review feedback - lint, cache key, error handling)
   }
 
+=======
+  }
+
+>>>>>>> f3755a2f8 (refactor: revert upload layer rewrite, keep audio support and reply-dispatcher integration)
   const fileKey = responseAny.file_key ?? responseAny.data?.file_key;
   if (!fileKey) {
     throw new Error("Feishu file upload failed: no file_key returned");
@@ -521,12 +547,35 @@ export async function sendMediaFeishu(params: {
     buffer = mediaBuffer;
     name = fileName ?? "file";
   } else if (mediaUrl) {
+<<<<<<< HEAD
     const loaded = await getFeishuRuntime().media.loadWebMedia(mediaUrl, {
       maxBytes: mediaMaxBytes,
       optimizeImages: false,
     });
     buffer = loaded.buffer;
     name = fileName ?? loaded.fileName ?? "file";
+=======
+    if (isLocalPath(mediaUrl)) {
+      // Local file path - read directly
+      const filePath = mediaUrl.startsWith("~")
+        ? mediaUrl.replace("~", process.env.HOME ?? "")
+        : mediaUrl.replace("file://", "");
+
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Local file not found: ${filePath}`);
+      }
+      buffer = fs.readFileSync(filePath);
+      name = fileName ?? path.basename(filePath);
+    } else {
+      // Remote URL - fetch
+      const response = await fetch(mediaUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch media from URL: ${response.status}`);
+      }
+      buffer = Buffer.from(await response.arrayBuffer());
+      name = fileName ?? (path.basename(new URL(mediaUrl).pathname) || "file");
+    }
+>>>>>>> f3755a2f8 (refactor: revert upload layer rewrite, keep audio support and reply-dispatcher integration)
   } else {
     throw new Error("Either mediaUrl or mediaBuffer must be provided");
   }
