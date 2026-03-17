@@ -200,11 +200,18 @@ export function applyShellPath(env: Record<string, string>, shellPath?: string |
 }
 
 function maybeNotifyOnExit(session: ProcessSession, status: "completed" | "failed") {
+  console.error(
+    `[DBG-EXEC] maybeNotifyOnExit called: id=${session.id.slice(0, 8)} status=${status} bg=${session.backgrounded} notify=${session.notifyOnExit} notified=${session.exitNotified}`,
+  );
   if (!session.backgrounded || !session.notifyOnExit || session.exitNotified) {
+    console.error(
+      `[DBG-EXEC] maybeNotifyOnExit: early return (bg=${session.backgrounded} notify=${session.notifyOnExit} notified=${session.exitNotified})`,
+    );
     return;
   }
   const sessionKey = session.sessionKey?.trim();
   if (!sessionKey) {
+    console.error(`[DBG-EXEC] maybeNotifyOnExit: no sessionKey, returning`);
     return;
   }
   session.exitNotified = true;
@@ -215,15 +222,19 @@ function maybeNotifyOnExit(session: ProcessSession, status: "completed" | "faile
     tail(session.tail || session.aggregated || "", DEFAULT_NOTIFY_TAIL_CHARS),
   );
   if (status === "completed" && !output && session.notifyOnExitEmptySuccess !== true) {
+    console.error(`[DBG-EXEC] maybeNotifyOnExit: empty success, returning`);
     return;
   }
   const summary = output
     ? `Exec ${status} (${session.id.slice(0, 8)}, ${exitLabel}) :: ${output}`
     : `Exec ${status} (${session.id.slice(0, 8)}, ${exitLabel})`;
+  console.error(`[DBG-EXEC] maybeNotifyOnExit: enqueueSystemEvent sessionKey=${sessionKey}`);
   enqueueSystemEvent(summary, { sessionKey });
-  requestHeartbeatNow(
-    scopedHeartbeatWakeOptions(sessionKey, { reason: `exec:${session.id}:exit` }),
+  const wakeOpts = scopedHeartbeatWakeOptions(sessionKey, { reason: `exec:${session.id}:exit` });
+  console.error(
+    `[DBG-EXEC] maybeNotifyOnExit: requestHeartbeatNow opts=${JSON.stringify(wakeOpts)}`,
   );
+  requestHeartbeatNow(wakeOpts);
 }
 
 export function createApprovalSlug(id: string) {

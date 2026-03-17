@@ -610,30 +610,38 @@ export async function runHeartbeatOnce(opts: {
   reason?: string;
   deps?: HeartbeatDeps;
 }): Promise<HeartbeatRunResult> {
+  console.error(
+    `[DBG-HB] runHeartbeatOnce called: reason=${opts.reason} sessionKey=${opts.sessionKey} agentId=${opts.agentId}`,
+  );
   const cfg = opts.cfg ?? loadConfig();
   const agentId = normalizeAgentId(opts.agentId ?? resolveDefaultAgentId(cfg));
   const heartbeat = opts.heartbeat ?? resolveHeartbeatConfig(cfg, agentId);
   if (!heartbeatsEnabled) {
+    console.error(`[DBG-HB] skipped: heartbeatsEnabled=false`);
     return { status: "skipped", reason: "disabled" };
   }
   if (!isHeartbeatEnabledForAgent(cfg, agentId)) {
+    console.error(`[DBG-HB] skipped: isHeartbeatEnabledForAgent=false agentId=${agentId}`);
     return { status: "skipped", reason: "disabled" };
   }
   if (!resolveHeartbeatIntervalMs(cfg, undefined, heartbeat)) {
+    console.error(`[DBG-HB] skipped: resolveHeartbeatIntervalMs=0 (no interval configured)`);
     return { status: "skipped", reason: "disabled" };
   }
 
   const startedAt = opts.deps?.nowMs?.() ?? Date.now();
   if (!isWithinActiveHours(cfg, heartbeat, startedAt)) {
+    console.error(`[DBG-HB] skipped: quiet-hours at ${new Date(startedAt).toISOString()}`);
     return { status: "skipped", reason: "quiet-hours" };
   }
 
   const queueSize = (opts.deps?.getQueueSize ?? getQueueSize)(CommandLane.Main);
   if (queueSize > 0) {
+    console.error(`[DBG-HB] skipped: requests-in-flight queueSize=${queueSize}`);
     return { status: "skipped", reason: "requests-in-flight" };
   }
 
-  // Preflight centralizes trigger classification, event inspection, and HEARTBEAT.md gating.
+  console.error(`[DBG-HB] passed all pre-checks, running preflight...`);
   const preflight = await resolveHeartbeatPreflight({
     cfg,
     agentId,
@@ -642,6 +650,7 @@ export async function runHeartbeatOnce(opts: {
     reason: opts.reason,
   });
   if (preflight.skipReason) {
+    console.error(`[DBG-HB] skipped by preflight: ${preflight.skipReason}`);
     emitHeartbeatEvent({
       status: "skipped",
       reason: preflight.skipReason,
@@ -649,9 +658,16 @@ export async function runHeartbeatOnce(opts: {
     });
     return { status: "skipped", reason: preflight.skipReason };
   }
+  console.error(`[DBG-HB] preflight passed, proceeding to heartbeat run`);
   const { entry, sessionKey, storePath } = preflight.session;
+  console.error(
+    `[DBG-HB] session: sessionKey=${sessionKey} entryExists=${!!entry} entryKeys=${entry ? Object.keys(entry).join(",") : "N/A"}`,
+  );
   const previousUpdatedAt = entry?.updatedAt;
   const delivery = resolveHeartbeatDeliveryTarget({ cfg, entry, heartbeat });
+  console.error(
+    `[DBG-HB] delivery: channel=${delivery.channel} to=${delivery.to ?? "N/A"} reason=${delivery.reason ?? "N/A"} accountId=${delivery.accountId ?? "N/A"}`,
+  );
   const heartbeatAccountId = heartbeat?.accountId?.trim();
   if (delivery.reason === "unknown-account") {
     log.warn("heartbeat: unknown accountId", {
@@ -679,9 +695,13 @@ export async function runHeartbeatOnce(opts: {
     accountId: delivery.accountId,
   }).responsePrefix;
 
+  console.error(
+    `[DBG-HB] visibility: showOk=${visibility.showOk} showAlerts=${visibility.showAlerts} useIndicator=${visibility.useIndicator}`,
+  );
   const canRelayToUser = Boolean(
     delivery.channel !== "none" && delivery.to && visibility.showAlerts,
   );
+  console.error(`[DBG-HB] canRelayToUser=${canRelayToUser}`);
   const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
   const { prompt, hasExecCompletion, hasCronEvents } = resolveHeartbeatRunPrompt({
     cfg,
@@ -769,8 +789,14 @@ export async function runHeartbeatOnce(opts: {
           bootstrapContextMode,
         }
       : { isHeartbeat: true, suppressToolErrorWarnings, bootstrapContextMode };
+    console.error(
+      `[DBG-HB] calling getReplyFromConfig, Provider=${ctx.Provider} SessionKey=${ctx.SessionKey}`,
+    );
     const replyResult = await getReplyFromConfig(ctx, replyOpts, cfg);
     const replyPayload = resolveHeartbeatReplyPayload(replyResult);
+    console.error(
+      `[DBG-HB] replyPayload: hasText=${!!replyPayload?.text} textLen=${replyPayload?.text?.length ?? 0} textPreview=${JSON.stringify(replyPayload?.text?.slice(0, 100) ?? "")}`,
+    );
     const includeReasoning = heartbeat?.includeReasoning === true;
     const reasoningPayloads = includeReasoning
       ? resolveHeartbeatReasoningPayloads(replyResult).filter((payload) => payload !== replyPayload)
@@ -780,12 +806,12 @@ export async function runHeartbeatOnce(opts: {
       !replyPayload ||
       (!replyPayload.text && !replyPayload.mediaUrl && !replyPayload.mediaUrls?.length)
     ) {
+      console.error(`[DBG-HB] reply is empty/null, returning ok-empty`);
       await restoreHeartbeatUpdatedAt({
         storePath,
         sessionKey,
         updatedAt: previousUpdatedAt,
       });
-      // Prune the transcript to remove HEARTBEAT_OK turns
       await pruneHeartbeatTranscript(transcriptState);
       const okSent = await maybeSendHeartbeatOk();
       emitHeartbeatEvent({
@@ -802,10 +828,6 @@ export async function runHeartbeatOnce(opts: {
 
     const ackMaxChars = resolveHeartbeatAckMaxChars(cfg, heartbeat);
     const normalized = normalizeHeartbeatReply(replyPayload, responsePrefix, ackMaxChars);
-    // For exec completion events, don't skip even if the response looks like HEARTBEAT_OK.
-    // The model should be responding with exec results, not ack tokens.
-    // Also, if normalized.text is empty due to token stripping but we have exec completion,
-    // fall back to the original reply text.
     const execFallbackText =
       hasExecCompletion && !normalized.text.trim() && replyPayload.text?.trim()
         ? replyPayload.text.trim()
@@ -815,6 +837,9 @@ export async function runHeartbeatOnce(opts: {
       normalized.shouldSkip = false;
     }
     const shouldSkipMain = normalized.shouldSkip && !normalized.hasMedia && !hasExecCompletion;
+    console.error(
+      `[DBG-HB] normalized: shouldSkip=${normalized.shouldSkip} shouldSkipMain=${shouldSkipMain} hasExecCompletion=${hasExecCompletion} textPreview=${JSON.stringify(normalized.text?.slice(0, 100) ?? "")}`,
+    );
     if (shouldSkipMain && reasoningPayloads.length === 0) {
       await restoreHeartbeatUpdatedAt({
         storePath,
@@ -854,12 +879,12 @@ export async function runHeartbeatOnce(opts: {
       startedAt - prevHeartbeatAt < 24 * 60 * 60 * 1000;
 
     if (isDuplicateMain) {
+      console.error(`[DBG-HB] SUPPRESSED: isDuplicateMain=true`);
       await restoreHeartbeatUpdatedAt({
         storePath,
         sessionKey,
         updatedAt: previousUpdatedAt,
       });
-      // Prune the transcript to remove duplicate heartbeat turns
       await pruneHeartbeatTranscript(transcriptState);
       emitHeartbeatEvent({
         status: "skipped",
@@ -873,7 +898,6 @@ export async function runHeartbeatOnce(opts: {
       return { status: "ran", durationMs: Date.now() - startedAt };
     }
 
-    // Reasoning payloads are text-only; any attachments stay on the main reply.
     const previewText = shouldSkipMain
       ? reasoningPayloads
           .map((payload) => payload.text)
@@ -882,6 +906,9 @@ export async function runHeartbeatOnce(opts: {
       : normalized.text;
 
     if (delivery.channel === "none" || !delivery.to) {
+      console.error(
+        `[DBG-HB] SUPPRESSED: no-target (channel=${delivery.channel} to=${delivery.to ?? "N/A"} reason=${delivery.reason ?? "N/A"})`,
+      );
       emitHeartbeatEvent({
         status: "skipped",
         reason: delivery.reason ?? "no-target",
@@ -894,6 +921,7 @@ export async function runHeartbeatOnce(opts: {
     }
 
     if (!visibility.showAlerts) {
+      console.error(`[DBG-HB] SUPPRESSED: showAlerts=false`);
       await restoreHeartbeatUpdatedAt({
         storePath,
         sessionKey,
@@ -938,6 +966,9 @@ export async function runHeartbeatOnce(opts: {
       }
     }
 
+    console.error(
+      `[DBG-HB] DELIVERING to channel=${delivery.channel} to=${delivery.to} shouldSkipMain=${shouldSkipMain}`,
+    );
     await deliverOutboundPayloads({
       cfg,
       channel: delivery.channel,
@@ -958,8 +989,8 @@ export async function runHeartbeatOnce(opts: {
       ],
       deps: opts.deps,
     });
+    console.error(`[DBG-HB] DELIVERED successfully`);
 
-    // Record last delivered heartbeat payload for dedupe.
     if (!shouldSkipMain && normalized.text.trim()) {
       const store = loadSessionStore(storePath);
       const current = store[sessionKey];
