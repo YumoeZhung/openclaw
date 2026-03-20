@@ -20,4 +20,11 @@ export {
   type WhatsAppAccountConfig,
 } from "openclaw/plugin-sdk/whatsapp";
 
-export { monitorWebChannel } from "openclaw/plugin-sdk/whatsapp";
+export {
+  buildChannelConfigSchema,
+  getChatChannelMeta,
+  monitorWebChannel,
+  normalizeE164,
+  resolveWhatsAppGroupIntroHint,
+  WhatsAppConfigSchema,
+} from "openclaw/plugin-sdk/whatsapp";

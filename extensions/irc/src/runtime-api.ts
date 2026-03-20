@@ -50,4 +50,12 @@ export {
   type PluginRuntime,
   type RuntimeEnv,
   type WizardPrompter,
+  BlockStreamingCoalesceSchema,
+  DEFAULT_ACCOUNT_ID,
+  DmConfigSchema,
+  DmPolicySchema,
+  GroupPolicySchema,
+  MarkdownConfigSchema,
+  ReplyRuntimeConfigSchemaShape,
+  requireOpenAllowFrom,
 } from "openclaw/plugin-sdk/irc";
