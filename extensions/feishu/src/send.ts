@@ -471,6 +471,27 @@ export async function sendMessageFeishu(
   });
 }
 
+/**
+ * Auto-fix common LLM card-building mistakes so they don't get rejected by
+ * the Feishu API with 200621 "parse card json err".
+ *
+ * Mutations (in-place):
+ * - Adds `schema: "2.0"` when the card uses `body.elements` without a schema declaration.
+ * - Lifts top-level `elements` into `body.elements` when `body` is absent (Schema 1.0 → 2.0).
+ */
+function normalizeCardSchema(card: Record<string, unknown>): void {
+  if (card.body && !card.schema) {
+    card.schema = "2.0";
+  }
+  if (Array.isArray(card.elements) && !card.body) {
+    card.body = { elements: card.elements };
+    delete card.elements;
+    if (!card.schema) {
+      card.schema = "2.0";
+    }
+  }
+}
+
 export type SendFeishuCardParams = {
   cfg: ClawdbotConfig;
   to: string;
@@ -484,6 +505,9 @@ export type SendFeishuCardParams = {
 export async function sendCardFeishu(params: SendFeishuCardParams): Promise<FeishuSendResult> {
   const { cfg, to, card, replyToMessageId, replyInThread, accountId } = params;
   const { client, receiveId, receiveIdType } = resolveFeishuSendTarget({ cfg, to, accountId });
+
+  normalizeCardSchema(card);
+
   const content = JSON.stringify(card);
 
   const directParams = { receiveId, receiveIdType, content, msgType: "interactive" };
